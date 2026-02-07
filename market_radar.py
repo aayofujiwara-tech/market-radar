@@ -44,8 +44,12 @@ SEARCH_REGION = "jp-jp"
 # ※ 期間指定が厳しいと0件になることがあるため、デフォルトはNone（制限なし）
 SEARCH_TIMELIMIT = None
 
+# DuckDuckGo検索のバックエンド（"html"=スクレイピング方式, "api"=API方式）
+# ※ apiモードはブロックされやすいため、htmlモードを推奨
+SEARCH_BACKEND = "html"
+
 # 各キーワード処理間の待機秒数（サーバー負荷軽減のため）
-SLEEP_SECONDS = 2
+SLEEP_SECONDS = 5
 
 
 # ============================================================
@@ -88,6 +92,7 @@ def search_duckduckgo(
     limit: int = SEARCH_LIMIT,
     region: str = SEARCH_REGION,
     timelimit: str | None = SEARCH_TIMELIMIT,
+    backend: str = SEARCH_BACKEND,
 ) -> list[dict]:
     """
     DuckDuckGoでウェブ検索を実行する。
@@ -97,6 +102,7 @@ def search_duckduckgo(
         limit: 取得する検索結果数の上限
         region: 検索地域（例: "jp-jp"）
         timelimit: 期間制限（None=制限なし, "y"=過去1年 など）
+        backend: 検索バックエンド（"html" or "api"）
 
     Returns:
         検索結果のリスト。各要素は {"title", "url", "snippet"} を持つ辞書。
@@ -107,11 +113,12 @@ def search_duckduckgo(
         "keywords": keyword,
         "region": region,
         "max_results": limit,
+        "backend": backend,
     }
     if timelimit is not None:
         search_kwargs["timelimit"] = timelimit
 
-    print(f"    [DEBUG] 検索パラメータ: region={region}, timelimit={timelimit}, max_results={limit}")
+    print(f"    [DEBUG] 検索パラメータ: backend={backend}, region={region}, timelimit={timelimit}, max_results={limit}")
 
     ddgs = DDGS()
     raw_results = ddgs.text(**search_kwargs)
@@ -125,7 +132,7 @@ def search_duckduckgo(
             }
         )
 
-    print(f"    [DEBUG] DuckDuckGo API から {len(results)}件 取得")
+    print(f"    [DEBUG] DuckDuckGo({backend}) から {len(results)}件 取得")
     return results
 
 
@@ -160,13 +167,13 @@ def process_keyword(keyword: str) -> list[dict]:
     time.sleep(1)  # サジェスト取得後に少し待機
 
     # --- Step 2: DuckDuckGo検索（解決策・競合情報） ---
-    print(f"  [Step 2] DuckDuckGoで検索中...")
+    print(f"  [Step 2] DuckDuckGoで検索中 (backend={SEARCH_BACKEND})...")
     try:
         search_results = search_duckduckgo(keyword)
         if search_results:
-            print(f"    -> {len(search_results)}件の検索結果をヒットしました")
+            print(f"    -> {len(search_results)}件ヒットしました")
         else:
-            print(f"    -> 0件ヒット：検索結果が見つかりませんでした")
+            print(f"    -> 0件ヒット：backend={SEARCH_BACKEND} で結果が返りませんでした")
     except Exception as e:
         print(f"    -> 検索に失敗しました: {type(e).__name__}: {e}")
         search_results = []
@@ -185,13 +192,13 @@ def process_keyword(keyword: str) -> list[dict]:
                 }
             )
     else:
-        # 検索結果が0件の場合、「ヒットなし」と明記する
+        # 検索結果が0件の場合、使用したバックエンド情報を含めて記録する
         rows.append(
             {
                 "キーワード": keyword,
                 "サジェスト（悩み・ニーズ）": suggests_text,
                 "検索順位": "",
-                "タイトル": "（ヒットなし）",
+                "タイトル": f"（ヒットなし / backend={SEARCH_BACKEND}）",
                 "URL": "",
                 "スニペット（本文要約）": "",
             }
