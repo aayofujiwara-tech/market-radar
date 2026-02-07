@@ -40,8 +40,9 @@ SEARCH_LIMIT = 5
 # DuckDuckGo検索の地域設定（日本）
 SEARCH_REGION = "jp-jp"
 
-# DuckDuckGo検索の期間制限（過去1年以内）
-SEARCH_TIMELIMIT = "y"
+# DuckDuckGo検索の期間制限（None=制限なし, "d"=1日, "w"=1週間, "m"=1ヶ月, "y"=1年）
+# ※ 期間指定が厳しいと0件になることがあるため、デフォルトはNone（制限なし）
+SEARCH_TIMELIMIT = None
 
 # 各キーワード処理間の待機秒数（サーバー負荷軽減のため）
 SLEEP_SECONDS = 2
@@ -86,7 +87,7 @@ def search_duckduckgo(
     keyword: str,
     limit: int = SEARCH_LIMIT,
     region: str = SEARCH_REGION,
-    timelimit: str = SEARCH_TIMELIMIT,
+    timelimit: str | None = SEARCH_TIMELIMIT,
 ) -> list[dict]:
     """
     DuckDuckGoでウェブ検索を実行する。
@@ -95,26 +96,36 @@ def search_duckduckgo(
         keyword: 検索キーワード
         limit: 取得する検索結果数の上限
         region: 検索地域（例: "jp-jp"）
-        timelimit: 期間制限（例: "y" = 過去1年）
+        timelimit: 期間制限（None=制限なし, "y"=過去1年 など）
 
     Returns:
         検索結果のリスト。各要素は {"title", "url", "snippet"} を持つ辞書。
     """
     results = []
-    with DDGS() as ddgs:
-        for r in ddgs.text(
-            keyword,
-            region=region,
-            timelimit=timelimit,
-            max_results=limit,
-        ):
-            results.append(
-                {
-                    "title": r.get("title", ""),
-                    "url": r.get("href", ""),
-                    "snippet": r.get("body", ""),
-                }
-            )
+    # 検索パラメータを構築（timelimitがNoneの場合は引数自体を渡さない）
+    search_kwargs = {
+        "keywords": keyword,
+        "region": region,
+        "max_results": limit,
+    }
+    if timelimit is not None:
+        search_kwargs["timelimit"] = timelimit
+
+    print(f"    [DEBUG] 検索パラメータ: region={region}, timelimit={timelimit}, max_results={limit}")
+
+    ddgs = DDGS()
+    raw_results = ddgs.text(**search_kwargs)
+
+    for r in raw_results:
+        results.append(
+            {
+                "title": r.get("title", ""),
+                "url": r.get("href", ""),
+                "snippet": r.get("body", ""),
+            }
+        )
+
+    print(f"    [DEBUG] DuckDuckGo API から {len(results)}件 取得")
     return results
 
 
@@ -153,11 +164,11 @@ def process_keyword(keyword: str) -> list[dict]:
     try:
         search_results = search_duckduckgo(keyword)
         if search_results:
-            print(f"    -> {len(search_results)}件の検索結果を取得しました")
+            print(f"    -> {len(search_results)}件の検索結果をヒットしました")
         else:
-            print(f"    -> 検索結果が見つかりませんでした")
+            print(f"    -> 0件ヒット：検索結果が見つかりませんでした")
     except Exception as e:
-        print(f"    -> 検索に失敗しました: {e}")
+        print(f"    -> 検索に失敗しました: {type(e).__name__}: {e}")
         search_results = []
 
     # --- データ統合 ---
@@ -174,13 +185,13 @@ def process_keyword(keyword: str) -> list[dict]:
                 }
             )
     else:
-        # 検索結果が0件でもキーワードとサジェストは記録する
+        # 検索結果が0件の場合、「ヒットなし」と明記する
         rows.append(
             {
                 "キーワード": keyword,
                 "サジェスト（悩み・ニーズ）": suggests_text,
                 "検索順位": "",
-                "タイトル": "（検索結果なし）",
+                "タイトル": "（ヒットなし）",
                 "URL": "",
                 "スニペット（本文要約）": "",
             }
